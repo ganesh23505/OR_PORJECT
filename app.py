@@ -496,12 +496,22 @@ def serve_index():
 def serve_static_files(path):
     # Serve other static files (JS, CSS, etc.)
     return send_from_directory('.', path)
+# ===================== Initialize before Gunicorn =====================
+try:
+    print(f"Attempting to load network from: {NETWORK_JSON_PATH}")
+    graph = load_network(NETWORK_JSON_PATH)
+    set_cost_mode("time")
+    print("✅ Network successfully loaded at startup.")
+except Exception as e:
+    print(f"❌ Failed to load network at startup: {e}")
+    graph = None
+# =====================================================================
 
 if __name__ == "__main__":
-    graph = load_network(NETWORK_JSON_PATH)
-    # default cost mode = time (minutes)
-    set_cost_mode("time")
+    # local debug mode
     app.run(host="0.0.0.0", port=5000, debug=True)
+
+
 
 
 
