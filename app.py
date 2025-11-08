@@ -14,7 +14,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS 
 
 # ------------- Config -------------
-NETWORK_JSON_PATH = "chennai_network.json"  # put the file next to this ap.py
+NETWORK_JSON_PATH = os.path.join(os.path.dirname(__file__), "chennai_network.json")  # put the file next to this ap.py
 DEFAULT_SPEED_KMPH = 30.0                   # used to compute time from distance
 VEHICLE_DISPATCH_PREP_MINS = 10             # 10 minutes to prep vehicle
 # ----------------------------------
@@ -467,3 +467,4 @@ if __name__ == "__main__":
     # default cost mode = time (minutes)
     set_cost_mode("time")
     app.run(host="0.0.0.0", port=5000, debug=True)
+
