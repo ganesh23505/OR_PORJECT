@@ -7,6 +7,7 @@ import json
 import math
 import random
 import time
+import os
 from typing import Dict, List, Tuple
 
 import networkx as nx
@@ -467,4 +468,5 @@ if __name__ == "__main__":
     # default cost mode = time (minutes)
     set_cost_mode("time")
     app.run(host="0.0.0.0", port=5000, debug=True)
+
 
