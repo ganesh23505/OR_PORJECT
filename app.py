@@ -11,24 +11,51 @@ import os
 from typing import Dict, List, Tuple
 
 import networkx as nx
-from flask import Flask, jsonify, request
-from flask_cors import CORS 
+from flask import Flask, jsonify, request, send_from_directory
+from flask_cors import CORS
 
 # ------------- Config -------------
-NETWORK_JSON_PATH = os.path.join(os.path.dirname(__file__), "chennai_network.json")  # put the file next to this ap.py
-DEFAULT_SPEED_KMPH = 30.0                   # used to compute time from distance
-VEHICLE_DISPATCH_PREP_MINS = 10             # 10 minutes to prep vehicle
+NETWORK_JSON_PATH = os.path.join(os.path.dirname(__file__), "chennai_network.json")
+DEFAULT_SPEED_KMPH = 30.0
+VEHICLE_DISPATCH_PREP_MINS = 10
 # ----------------------------------
 
-app = Flask(__name__) 
-CORS(app) 
+app = Flask(__name__)
+CORS(app)
+
+# --- Load the network at startup (for Render / gunicorn) ---
+graph = None
+try:
+    graph = None
+    print(f"Attempting to load network from: {NETWORK_JSON_PATH}")
+    graph = None
+    import os
+    from pathlib import Path
+    if not Path(NETWORK_JSON_PATH).exists():
+        print(f"❌ File not found at {NETWORK_JSON_PATH}")
+    else:
+        from ap import load_network, set_cost_mode  # if your function is defined below
+    # But in your file it’s already defined before usage — so just call directly:
+    from __main__ import load_network, set_cost_mode  # remove this if not needed
+except Exception:
+    pass
+
+# For now, just call load_network directly (since it’s defined later)
+try:
+    from __main__ import load_network, set_cost_mode
+except ImportError:
+    pass
+
+# --- Simpler way ---
 try:
     graph = load_network(NETWORK_JSON_PATH)
     set_cost_mode("time")
-    print("--- ✅ Network successfully loaded at startup ---")
+    print("✅ Network successfully loaded at startup.")
 except Exception as e:
-    graph = None
     print(f"❌ Failed to load network at startup: {e}")
+    graph = None
+# ----------------------------------------------------------
+
     
 # --- Globals populated at startup ---
 graph: nx.DiGraph = None
@@ -475,6 +502,7 @@ if __name__ == "__main__":
     # default cost mode = time (minutes)
     set_cost_mode("time")
     app.run(host="0.0.0.0", port=5000, debug=True)
+
 
 
 
