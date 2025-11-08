@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- *** FORCE BROWSER TO NOT CACHE THIS FILE *** -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <!-- *** END *** -->
+    
+    <title>Evacuation Route Finder</title>
+    <!-- Load Tailwind CSS from CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom styles for loading spinner */
+        .loader {
+            border-top-color: #3498db;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        /* Style for the canvas container */
+        .canvas-container {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%; /* 16:9 aspect ratio */
+            background-color: #ffffff; /* White background */
+            border-radius: 0.5rem;
+            overflow: hidden;
+            border: 1px solid #e5e7eb;
+        }
+        #network-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: default;
+        }
+
+        /* Styles for the highlighted text path */
+        .path-container {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.5rem;
+            line-height: 1.75;
+        }
+        .path-node {
+            padding: 0.125rem 0.625rem;
+            border-radius: 9999px;
+            font-weight: 600;
+            color: #1d4ed8; /* text-blue-800 */
+            background-color: #dbeafe; /* bg-blue-100 */
+            border: 1px solid #bfdbfe; /* border-blue-200 */
+            white-space: nowrap;
+        }
+        .path-node-shelter {
+            color: #1d4ed8;
+            background-color: #dbeafe;
+            border: 1px solid #bfdbfe;
+        }
+        .path-arrow {
+            color: #6b7280;
+            font-weight: 600;
+        }
+
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto p-4 sm:p-6 md:p-8 max-w-2xl min-h-screen flex flex-col justify-center">
+
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-2xl sm:text-3xl md:text-4xl font-bold text-blue-800">
+                Optimization of Relief Supply and Evacuation Logistics
+            </h1>
+            <p class="text-lg sm:text-xl text-gray-600 mt-2">Chennai Disaster Evacuation Finder</p>
+        </header>
+
+        <!-- Network Visualization Card (Always Visible) -->
+        <div class="bg-white p-6 sm:p-8 rounded-xl shadow-xl mb-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Chennai Network Map</h2>
+            <div class="canvas-container">
+                <canvas id="network-canvas"></canvas>
+            </div>
+        </div>
+
+        <!-- Main Content Card -->
+        <main class="bg-white p-6 sm:p-8 rounded-xl shadow-2xl">
+
+            <!-- Error Message Box (Initially Hidden) -->
+            <div id="error-box" class="hidden mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+                <strong class="font-bold">Error!</strong>
+                <span class="block sm:inline" id="error-message"></span>
+            </div>
+
+            <!-- Input Section -->
+            <div id="input-section">
+                <div class="space-y-4">
+                    
+                    <!-- New User Info Inputs -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label for="user-name" class="block text-lg font-medium text-gray-700">1. Your Name</label>
+                            <input type="text" id="user-name" placeholder="e.g., Kumar" class="mt-1 w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label for="user-phone" class="block text-lg font-medium text-gray-700">2. Phone Number</label>
+                            <input type="tel" id="user-phone" placeholder="10-digit number" class="mt-1 w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+                    <!-- End New User Info -->
+
+                    <div>
+                        <label for="location-select" class="block text-lg font-medium text-gray-700">
+                            3. Select Your Current Location
+                        </label>
+                        <select id="location-select"
+                                class="mt-1 flex-grow w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white">
+                            <option value="" disabled selected>Loading locations...</option>
+                        </select>
+                    </div>
+
+                    <!-- Inputs for People and Transport -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label for="people-count" class="block text-lg font-medium text-gray-700">4. How many people?</label>
+                            <input type="number" id="people-count" value="1" min="1" class="mt-1 w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label for="transport-select" class="block text-lg font-medium text-gray-700">5. Need transport?</label>
+                            <select id="transport-select" class="mt-1 w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                                <option value="no">No, I have my own</option>
+                                <option value="yes">Yes, please send help</option>
+                            </select>
+                        </div>
+                    </div>
+                    <!-- End Inputs -->
+                </div>
+
+                <div class="mt-6">
+                    <button id="find-button"
+                            class="w-full bg-blue-600 text-white px-6 py-3 font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200 ease-in-out flex items-center justify-center">
+                        <!-- Loader icon (hidden by default) -->
+                        <div id="loader" class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-5 w-5 mr-3 hidden"></div>
+                        <span>Find Route</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Result Section (Initially Hidden) -->
+            <div id="result-section" class="mt-8 hidden">
+                <h2 class="text-2xl font-semibold text-green-700 mb-4" id="result-header">Route Allocated!</h2>
+                
+                <!-- New Status Box -->
+                <div id="status-box" class="hidden mb-4 p-4 rounded-lg border-2">
+                    <p id="status-message" class="font-medium text-lg"></p>
+                </div>
+                <!-- End Status Box -->
+
+                <!-- Route Details Card -->
+                <div class="border rounded-lg overflow-hidden shadow-lg bg-gray-50 p-5">
+                    <h3 class="text-xl font-bold text-gray-900" id="shelter-name">
+                        <!-- Shelter name will be inserted here -->
+                    </h3>
+                    <!-- Route Details -->
+                    <div class="p-5 bg-gray-50">
+                        <h3 class="text-xl font-bold text-gray-900" id="shelter-name">
+                            <!-- e.g., Shelter 1 (Guindy) -->
+                        </h3>
+                        
+                        <p class="text-md text-gray-600 mt-3 font-semibold">
+                            Path:
+                        </p>
+                        <!-- *** NEW HIGHLIGHTED PATH CONTAINER *** -->
+                        <div id="route-path-container" class="path-container mt-2 mb-4">
+                            <!-- Path will be generated here by JS -->
+                        </div>
+                        
+                        <div class="flex flex-wrap gap-4 mt-4 text-center">
+                            <div class="flex-1 bg-white p-3 rounded-lg border">
+                                <span class="block text-sm text-gray-500">Distance</span>
+                                <span class="block text-lg font-semibold text-blue-700" id="route-distance"></span>
+                            </div>
+                            <div class="flex-1 bg-white p-3 rounded-lg border">
+                                <span class="block text-sm text-gray-500">Est. Time</span>
+                                <span class="block text-lg font-semibold text-blue-700" id="route-time"></span>
+                            </div>
+                        </div>
+                         <button id="reset-button"
+                            class="w-full mt-6 bg-gray-600 text-white px-6 py-3 font-semibold rounded-lg shadow-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-all duration-200 ease-in-out">
+                            Search Again
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+
+        <!-- Footer -->
+        <footer class="text-center mt-8">
+            <p class="text-sm text-gray-500">
+                A project based on Operations Research models for disaster management.
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const findButton = document.getElementById('find-button');
+        const resetButton = document.getElementById('reset-button');
+        const locationSelect = document.getElementById('location-select');
+        const inputSection = document.getElementById('input-section');
+        const resultSection = document.getElementById('result-section');
+        const loader = document.getElementById('loader');
+        const buttonText = findButton.querySelector('span');
+        const errorBox = document.getElementById('error-box');
+        const errorMessage = document.getElementById('error-message');
+        
+        // --- New Inputs ---
+        const userNameInput = document.getElementById('user-name');
+        const userPhoneInput = document.getElementById('user-phone');
+        const peopleCountInput = document.getElementById('people-count');
+        const transportSelect = document.getElementById('transport-select');
+        const statusBox = document.getElementById('status-box');
+        const statusMessage = document.getElementById('status-message');
+        const resultHeader = document.getElementById('result-header');
+        
+        // --- Canvas Elements ---
+        const canvas = document.getElementById('network-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // --- Global State ---
+        const API_BASE_URL = 'http://127.0.0.1:5000/api';
+        const AVG_SPEED_KMPH = 15; // Set average speed to 15 km/h
+        let networkData = null; // Will hold {nodes, arcs, shelters}
+        let scaledNodes = {};   // Will hold {id: {x, y, name, id}}
+        let bounds = {};        // Will hold {minLon, maxLon, minLat, maxLat}
+        let currentHighlightPath = []; // Store the current path to redraw on resize
+        let currentAllocation = null; // Store the last successful allocation
+        let scaleFactor = 1.0; // For high-DPI screens
+
+        // Pan and zoom state
+        let transform = { x: 0, y: 0, scale: 1 };
+        let isDragging = false;
+        let lastMousePos = { x: 0, y: 0 };
+
+        // --- Error Handling ---
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorBox.classList.remove('hidden');
+        }
+        function hideError() {
+            errorBox.classList.add('hidden');
+        }
+
+        // --- Button State ---
+        function setFindButtonLoading(isLoading) {
+            if (isLoading) {
+                buttonText.textContent = 'Searching...';
+                loader.classList.remove('hidden');
+                findButton.disabled = true;
+                locationSelect.disabled = true;
+                peopleCountInput.disabled = true;
+                transportSelect.disabled = true;
+                userNameInput.disabled = true;
+                userPhoneInput.disabled = true;
+            } else {
+                buttonText.textContent = 'Find Route';
+                loader.classList.add('hidden');
+                findButton.disabled = false;
+                locationSelect.disabled = false;
+                peopleCountInput.disabled = false;
+                transportSelect.disabled = false;
+                userNameInput.disabled = false;
+                userPhoneInput.disabled = false;
+            }
+        }
+
+        // --- Data Loading ---
+        async function loadLocations() {
+            // Try to populate locations from the backend first; if that fails, fall back to local network data
+            locationSelect.innerHTML = '';
+            const defaultOption = document.createElement('option');
+            defaultOption.value = "";
+            defaultOption.textContent = "Select your location";
+            defaultOption.disabled = true;
+            defaultOption.selected = true;
+            locationSelect.appendChild(defaultOption);
+
+            try {
+                // Attempt backend call (if available)
+                const response = await fetch(`${API_BASE_URL}/get-locations?t=${new Date().getTime()}`);
+                if (response.ok) {
+                    const locations = await response.json();
+                    locations.forEach(location => {
+                        const option = document.createElement('option');
+                        option.value = location.id;
+                        option.textContent = location.name;
+                        locationSelect.appendChild(option);
+                    });
+                    return;
+                }
+                // If not ok, fall through to local
+            } catch (err) {
+                // ignore and fallback to local
+            }
+
+            // Fallback: use networkData (local chennai_network.json) to populate locations
+            if (networkData && networkData.nodes && networkData.nodes.length > 0) {
+                // Prefer non-shelter nodes for user locations
+                networkData.nodes
+                    .filter(n => !n.id.startsWith('s'))
+                    .forEach(node => {
+                        const option = document.createElement('option');
+                        option.value = node.id;
+                        option.textContent = node.name;
+                        locationSelect.appendChild(option);
+                    });
+                return;
+            }
+
+            // Last-resort error state
+            locationSelect.innerHTML = '<option value="" disabled selected>Error loading locations</option>';
+        }
+
+        async function loadNetworkData() {
+            try {
+                // First try backend endpoint (if a backend is provided).
+                try {
+                    const resp = await fetch(`${API_BASE_URL}/get-network-data?t=${new Date().getTime()}`);
+                    if (resp.ok) {
+                        networkData = await resp.json();
+                    }
+                } catch (e) {
+                    // ignore and try local file
+                }
+
+                // If not loaded from backend, load the local JSON file shipped with the project
+                if (!networkData) {
+                    const localResp = await fetch('./chennai_network.json');
+                    if (!localResp.ok) throw new Error('Local network file not found');
+                    networkData = await localResp.json();
+                }
+
+                // Set initial full-map bounds and draw
+                calculateBounds();
+                // Make sure the result-section (which contains the canvas) is visible so canvas gets a size
+                // (we intentionally keep the map visible to show the network)
+                preprocessCanvasData();
+                drawNetwork(); // Draw the initial base map
+
+            } catch (error) {
+                console.error('Failed to load network data:', error);
+                showError('Could not load network map data.');
+            }
+        }
+
+        // --- Canvas Drawing Logic ---
+
+        function calculateBounds(nodeIds = []) {
+            // Ensure networkData is loaded
+            if (!networkData || !networkData.nodes) {
+                console.error("Network data not loaded, cannot calculate bounds.");
+                return;
+            }
+            
+            let nodesToBound = networkData.nodes;
+            
+            if (nodeIds.length > 0) {
+                const pathNodesSet = new Set(nodeIds);
+                nodesToBound = networkData.nodes.filter(n => pathNodesSet.has(n.id));
+            }
+            
+            if (!nodesToBound || nodesToBound.length === 0) {
+                nodesToBound = networkData.nodes; // Fallback
+            }
+
+            const lons = nodesToBound.map(n => n.lon);
+            const lats = nodesToBound.map(n => n.lat);
+            bounds = {
+                minLon: Math.min(...lons),
+                maxLon: Math.max(...lons),
+                minLat: Math.min(...lats),
+                maxLat: Math.max(...lats),
+            };
+            
+            let lonPad = (bounds.maxLon - bounds.minLon) * 0.1;
+            let latPad = (bounds.maxLat - bounds.minLat) * 0.1;
+
+            if (lonPad < 0.01) lonPad = 0.01;
+            if (latPad < 0.01) latPad = 0.01;
+            
+            bounds.minLon -= lonPad;
+            bounds.maxLon += lonPad;
+            bounds.minLat -= latPad;
+            bounds.maxLat += latPad;
+        }
+
+        function scaleCoordinates(lon, lat) {
+            const { minLon, maxLon, minLat, maxLat } = bounds;
+            
+            const canvasRect = canvas.getBoundingClientRect();
+            // Check for valid canvas dimensions
+            if (canvasRect.width === 0 || canvasRect.height === 0) {
+                return { x: 0, y: 0 }; // Avoid division by zero
+            }
+            
+            const canvasWidth = canvas.width / scaleFactor;
+            const canvasHeight = canvas.height / scaleFactor;
+            
+            const x = (lon - minLon) / (maxLon - minLon) * canvasWidth;
+            const y = (1 - (lat - minLat) / (maxLat - minLat)) * canvasHeight;
+            return { x, y };
+        }
+
+        function preprocessCanvasData() {
+            if (!networkData) return;
+            
+            const canvasRect = canvas.getBoundingClientRect();
+            // If canvas is not yet rendered, skip
+            if (canvasRect.width === 0 || canvasRect.height === 0) {
+                return;
+            }
+            
+            scaleFactor = window.devicePixelRatio || 1;
+            canvas.width = canvasRect.width * scaleFactor;
+            canvas.height = canvasRect.height * scaleFactor;
+            
+            // Apply current transform and scale
+            applyTransform(ctx);
+
+            scaledNodes = {};
+            networkData.nodes.forEach(node => {
+                const { x, y } = scaleCoordinates(node.lon, node.lat);
+                scaledNodes[node.id] = {
+                    id: node.id,
+                    name: node.name,
+                    x: x,
+                    y: y
+                };
+            });
+        }
+        
+        function drawNetwork(highlightPathIds = []) {
+            if (!ctx || !networkData || !scaledNodes) return;
+            
+            const canvasWidth = canvas.width / scaleFactor;
+            const canvasHeight = canvas.height / scaleFactor;
+            
+            ctx.save(); // Save the current state
+            applyTransform(ctx); // Apply pan/zoom transform
+            
+            ctx.clearRect(-transform.x, -transform.y, canvasWidth / transform.scale, canvasHeight / transform.scale);
+            
+            const pathSet = new Set(highlightPathIds);
+            const pathEdges = new Set();
+            for (let i = 0; i < highlightPathIds.length - 1; i++) {
+                pathEdges.add(`${highlightPathIds[i]}-${highlightPathIds[i+1]}`);
+                pathEdges.add(`${highlightPathIds[i+1]}-${highlightPathIds[i]}`);
+            }
+
+            // 1. Draw Arcs (Lines)
+            networkData.arcs.forEach(arc => {
+                const start = scaledNodes[arc.from];
+                const end = scaledNodes[arc.to];
+                if (!start || !end) return;
+                
+                const isPathEdge = pathEdges.has(`${arc.from}-${arc.to}`) || pathEdges.has(`${arc.to}-${arc.from}`);
+                
+                ctx.beginPath();
+                ctx.moveTo(start.x, start.y);
+                ctx.lineTo(end.x, end.y);
+                ctx.strokeStyle = isPathEdge ? '#EF4444' : '#D1D5DB'; // Red-500 if path, Gray-300 otherwise
+                ctx.lineWidth = isPathEdge ? 3 : 1;
+                ctx.stroke();
+            });
+
+            // 2. Draw Nodes (Circles) and Labels
+            Object.values(scaledNodes).forEach(node => {
+                // Ensure node has valid coordinates
+                if (typeof node.x === 'undefined' || typeof node.y === 'undefined') return;
+                
+                const isShelter = node.id.startsWith('s');
+                const isPathNode = pathSet.has(node.id);
+
+                ctx.beginPath();
+                // Scale node size with zoom
+                const nodeSize = isPathNode ? 7 / transform.scale : 4 / transform.scale;
+                ctx.arc(node.x, node.y, nodeSize, 0, 2 * Math.PI);
+                
+                if (isPathNode) {
+                    ctx.fillStyle = '#3B82F6'; // Blue-500
+                    ctx.strokeStyle = '#FFFFFF'; // White border
+                    ctx.lineWidth = 2 / transform.scale;
+                } else if (isShelter) {
+                    ctx.fillStyle = '#10B981'; // Green-500
+                    ctx.strokeStyle = '#10B981';
+                    ctx.lineWidth = 1 / transform.scale;
+                } else {
+                    ctx.fillStyle = '#9CA3AF'; // Gray-400
+                    ctx.strokeStyle = '#9CA3AF';
+                    ctx.lineWidth = 1 / transform.scale;
+                }
+                
+                ctx.fill();
+                ctx.stroke();
+
+                // 3. Draw labels for important nodes
+                if (isPathNode || (isShelter && !highlightPathIds.length)) {
+                     ctx.fillStyle = '#1F2937'; // Gray-800
+                     // Scale font size with zoom level
+                     const fontSize = Math.max(8, Math.min(14, 11 / transform.scale));
+                     ctx.font = `bold ${fontSize}px Inter, sans-serif`;
+                     ctx.fillText(node.name, node.x + 10 / transform.scale, node.y + 4 / transform.scale);
+                } else if (isShelter && highlightPathIds.length) {
+                    // On zoom, only label path nodes, but show shelter dots
+                    ctx.beginPath();
+                    ctx.arc(node.x, node.y, 4, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#10B981';
+                    ctx.strokeStyle = '#10B981';
+                    ctx.lineWidth = 1;
+                    ctx.fill();
+                    ctx.stroke();
+                }
+            });
+            
+            ctx.restore(); // Restore the context state
+        }
+        
+        function createHighlightedPath(pathNames, pathIds) {
+            const container = document.getElementById('route-path-container');
+            container.innerHTML = ''; // Clear old path
+
+            pathNames.forEach((name, index) => {
+                const nodeEl = document.createElement('span');
+                nodeEl.textContent = name;
+                nodeEl.classList.add('path-node');
+                
+                if (index === pathNames.length - 1 && pathIds[index].startsWith('s')) {
+                    nodeEl.classList.add('path-node-shelter');
+                }
+                container.appendChild(nodeEl);
+                
+                if (index < pathNames.length - 1) {
+                    const arrowEl = document.createElement('span');
+                    arrowEl.textContent = '→';
+                    arrowEl.classList.add('path-arrow');
+                    container.appendChild(arrowEl);
+                }
+            });
+        }
+
+
+        // --- Pan and Zoom Functions ---
+        function applyTransform(ctx) {
+            ctx.setTransform(
+                scaleFactor * transform.scale, 0, 
+                0, scaleFactor * transform.scale, 
+                scaleFactor * transform.x, 
+                scaleFactor * transform.y
+            );
+        }
+
+        function getMousePos(canvas, evt) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: (evt.clientX - rect.left) / transform.scale - transform.x,
+                y: (evt.clientY - rect.top) / transform.scale - transform.y
+            };
+        }
+
+        // Add mouse event listeners for pan and zoom
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            lastMousePos = {
+                x: e.clientX - transform.x,
+                y: e.clientY - transform.y
+            };
+            canvas.style.cursor = 'grabbing';
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            
+            transform.x = e.clientX - lastMousePos.x;
+            transform.y = e.clientY - lastMousePos.y;
+            
+            drawNetwork(currentHighlightPath);
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+            canvas.style.cursor = 'grab';
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            isDragging = false;
+            canvas.style.cursor = 'grab';
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            
+            const mousePos = getMousePos(canvas, e);
+            const zoom = e.deltaY < 0 ? 1.1 : 0.9;
+            
+            // Limit zoom level
+            const newScale = transform.scale * zoom;
+            if (newScale < 0.5 || newScale > 5) return;
+            
+            transform.scale = newScale;
+            
+            // Adjust position to zoom toward mouse position
+            transform.x -= (mousePos.x * (zoom - 1));
+            transform.y -= (mousePos.y * (zoom - 1));
+            
+            drawNetwork(currentHighlightPath);
+        });
+
+        // Set initial cursor style
+        canvas.style.cursor = 'grab';
+
+        // --- Event Listeners ---
+        findButton.addEventListener('click', async () => {
+            // --- NEW: Get all inputs ---
+            const startNodeId = locationSelect.value;
+            const peopleCount = parseInt(peopleCountInput.value, 10);
+            const needsTransport = transportSelect.value === 'yes';
+            const userName = userNameInput.value;
+            const userPhone = userPhoneInput.value;
+            
+            hideError();
+
+            // --- NEW: Validation ---
+            if (!userName) {
+                showError('Please enter your name.');
+                return;
+            }
+            if (!userPhone || !/^\d{10}$/.test(userPhone)) {
+                showError('Please enter a valid 10-digit phone number.');
+                return;
+            }
+             if (!startNodeId) {
+                showError('Please select a location from the dropdown.');
+                return;
+            }
+            if (isNaN(peopleCount) || peopleCount < 1) {
+                showError('Please enter a valid number of people (1 or more).');
+                return;
+            }
+            
+            setFindButtonLoading(true);
+
+            try {
+                // --- Step 1: Call /api/transport-allocate ---
+                const allocateResponse = await fetch(`${API_BASE_URL}/transport-allocate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        groups: [{
+                            startNodeId: startNodeId,
+                            people: peopleCount
+                        }],
+                        shelterCapacities: null, 
+                        allowPartialSplit: false,
+                        costMode: "time"
+                    }),
+                });
+
+                if (!allocateResponse.ok) {
+                    const errorData = await allocateResponse.json();
+                    throw new Error(errorData.error || 'Network response was not ok');
+                }
+
+                const data = await allocateResponse.json();
+                
+                if (data.unassigned && data.unassigned.length > 0) {
+                    throw new Error('All nearby shelters are at full capacity. Please try again later.');
+                }
+                if (!data.allocations || data.allocations.length === 0) {
+                     throw new Error('No allocation could be made. Shelters may be full.');
+                }
+
+                // Success! Get the first allocation
+                const result = data.allocations[0];
+                currentAllocation = result; 
+                
+                currentHighlightPath = result.path_ids; 
+
+                // Zoom in on the path
+                calculateBounds(currentHighlightPath); 
+                preprocessCanvasData();
+
+                // --- Populate Results ---
+                resultHeader.textContent = `Route Allocated for ${userName}!`;
+                document.getElementById('shelter-name').textContent = result.assignedShelterName;
+                
+                createHighlightedPath(result.path, result.path_ids);
+                
+                document.getElementById('route-distance').textContent = `${result.distance_km.toFixed(1)} km`;
+                
+                const timeInMinutes = result.cost_time_min;
+                
+                if (timeInMinutes < 60) {
+                    document.getElementById('route-time').textContent = `${timeInMinutes.toFixed(0)} mins`;
+                } else {
+                    const hours = Math.floor(timeInMinutes / 60);
+                    const minutes = (timeInMinutes % 60).toFixed(0);
+                    document.getElementById('route-time').textContent = `${hours}h ${minutes}m`;
+                }
+
+                // --- Step 2: Handle transport request ---
+                statusBox.classList.remove('hidden', 'bg-green-100', 'border-green-300', 'text-green-800', 'bg-yellow-100', 'border-yellow-300', 'text-yellow-800', 'bg-red-100', 'border-red-300', 'text-red-800');
+                if (needsTransport) {
+                    await requestTransport(result.assignedShelterId, peopleCount, startNodeId);
+                } else {
+                    statusMessage.textContent = 'Please proceed to the shelter with your own transport.';
+                    statusBox.classList.add('bg-green-100', 'border-green-300', 'text-green-800');
+                    setFindButtonLoading(false); // Manually re-enable button
+                }
+
+                drawNetwork(result.path_ids);
+
+                // Show the results
+                inputSection.classList.add('hidden');
+                resultSection.classList.remove('hidden');
+
+            } catch (error) {
+                console.error('Error finding route:', error);
+                showError(`${error.message}`);
+                setFindButtonLoading(false); // Make sure button is re-enabled on error
+            } 
+        });
+        
+        // --- MODIFIED: Transport Request Function ---
+        async function requestTransport(shelterId, peopleCount, startNodeId) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/request-transport`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        shelterId: shelterId,
+                        people: peopleCount,
+                        startNodeId: startNodeId // Send the user's location
+                    }),
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Transport request server error.');
+                }
+                
+                const transportData = await response.json();
+                
+                // --- NEW: Simplified Message ---
+                if (transportData.status === 'assigned') {
+                    const eta = transportData.message.split("Arrives in approx. ")[1] || "soon";
+                    statusMessage.textContent = `Vehicle dispatched! Arrives in approx. ${eta}.`;
+                    statusBox.classList.add('bg-green-100', 'border-green-300', 'text-green-800');
+                } else if (transportData.status === 'pending') {
+                     const eta = transportData.message.split("Total ETA: approx. ")[1] || "soon";
+                    statusMessage.textContent = `All vehicles are busy. A new vehicle will be assigned. Total ETA: approx. ${eta}.`;
+                    statusBox.classList.add('bg-yellow-100', 'border-yellow-300', 'text-yellow-800');
+                } else {
+                    // Error status
+                    statusMessage.textContent = transportData.message; // Show the server error
+                    statusBox.classList.add('bg-red-100', 'border-red-300', 'text-red-800');
+                }
+                
+            } catch (error) {
+                console.error("Transport request failed:", error);
+                statusMessage.textContent = "Could not contact transport services. Please arrange your own transport.";
+                statusBox.classList.add('bg-red-100', 'border-red-300', 'text-red-800');
+            } finally {
+                 setFindButtonLoading(false); // Re-enable button after all logic is done
+            }
+        }
+
+
+        resetButton.addEventListener('click', () => {
+            // Hide results, show inputs
+            resultSection.classList.add('hidden');
+            inputSection.classList.remove('hidden');
+            hideError();
+            
+            // Reset new inputs
+            peopleCountInput.value = '1';
+            transportSelect.value = 'no';
+            userNameInput.value = '';
+            userPhoneInput.value = '';
+            statusBox.classList.add('hidden');
+            
+            locationSelect.value = '';
+            locationSelect.disabled = false;
+            
+            currentHighlightPath = [];
+            currentAllocation = null;
+            
+            // Reset bounds to full map
+            calculateBounds(); 
+            preprocessCanvasData(); 
+            
+            // Reset transform to default
+            transform = { x: 0, y: 0, scale: 1 };
+            
+            // Redraw the base map
+            drawNetwork();
+        });
+
+        // --- Initial Load ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Load network data first (from local JSON). Then populate locations (fallbacks to network data).
+            await loadNetworkData();
+            await loadLocations();
+        });
+        
+        // Redraw map on window resize
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                if (networkData) { // Only run if data is loaded
+                    calculateBounds(currentHighlightPath); 
+                    preprocessCanvasData(); 
+                    drawNetwork(currentHighlightPath);
+                }
+            }, 100); // Debounce resize event
+        });
+
+    </script>
+</body>
+</html>
