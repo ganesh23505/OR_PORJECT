@@ -450,40 +450,11 @@ def request_transport():
 
 
 # ===================== Main =====================
-from flask import Flask, jsonify, send_from_directory
-import json
-import os
-
-app = Flask(__name__, static_folder="static")  # specify the static folder
-
-# Path to the JSON inside static folder
-NETWORK_JSON_PATH = os.path.join(app.static_folder, 'chennai_network.json')
-
-# Load the network data
-def load_network(path):
-    with open(path, 'r') as f:
-        return json.load(f)
-
-network_data = load_network(NETWORK_JSON_PATH)
-
-# Serve the main page
-@app.route('/')
-def serve_index():
-    return send_from_directory('.', 'index.html')  # index.html stays in root
-
-# Serve other static files (JS, CSS, etc.)
-@app.route('/<path:path>')
-def serve_files(path):
-    return send_from_directory('.', path)
-
-# Serve the network JSON via an API route
-@app.route('/network-data')
-def get_network_data():
-    return jsonify(network_data)
 
 if __name__ == "__main__":
-    # If you have these functions in your app, call them
-    # graph = load_network(NETWORK_JSON_PATH)
-    # set_cost_mode("time")
+    # Load the network graph and initialize server state
+    graph = load_network(NETWORK_JSON_PATH)
+    set_cost_mode("time")  # default to travel time
     app.run(host="0.0.0.0", port=5000, debug=True)
+
 
