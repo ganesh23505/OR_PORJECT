@@ -22,7 +22,14 @@ VEHICLE_DISPATCH_PREP_MINS = 10             # 10 minutes to prep vehicle
 
 app = Flask(__name__) 
 CORS(app) 
-
+try:
+    graph = load_network(NETWORK_JSON_PATH)
+    set_cost_mode("time")
+    print("--- ✅ Network successfully loaded at startup ---")
+except Exception as e:
+    graph = None
+    print(f"❌ Failed to load network at startup: {e}")
+    
 # --- Globals populated at startup ---
 graph: nx.DiGraph = None
 nodes_data: Dict[str, dict] = {}
@@ -468,5 +475,6 @@ if __name__ == "__main__":
     # default cost mode = time (minutes)
     set_cost_mode("time")
     app.run(host="0.0.0.0", port=5000, debug=True)
+
 
 
