@@ -450,11 +450,20 @@ def request_transport():
 
 
 # ===================== Main =====================
+from flask import send_from_directory
+
+@app.route('/')
+def serve_index():
+    # Serve the main page (index.html)
+    return send_from_directory('.', 'index.html')
+
+@app.route('/<path:path>')
+def serve_static_files(path):
+    # Serve other static files (JS, CSS, etc.)
+    return send_from_directory('.', path)
 
 if __name__ == "__main__":
-    # Load the network graph and initialize server state
     graph = load_network(NETWORK_JSON_PATH)
-    set_cost_mode("time")  # default to travel time
+    # default cost mode = time (minutes)
+    set_cost_mode("time")
     app.run(host="0.0.0.0", port=5000, debug=True)
-
-
