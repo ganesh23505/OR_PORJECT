@@ -32,7 +32,8 @@
         .canvas-container {
             position: relative;
             width: 100%;
-            padding-top: 56.25%; /* 16:9 aspect ratio */
+            padding-top: 0; /* removed aspect ratio */
+            height: 520px; /* fixed larger height for a bigger map area */
             background-color: #ffffff; /* White background */
             border-radius: 0.5rem;
             overflow: hidden;
@@ -95,6 +96,9 @@
             <div class="canvas-container">
                 <canvas id="network-canvas"></canvas>
             </div>
+            <p id="map-helper-text" class="text-sm text-blue-600 mt-3 text-center font-medium">
+                Hover over the map to see place names
+            </p>
         </div>
 
         <!-- Main Content Card -->
@@ -254,8 +258,17 @@
 
         // Pan and zoom state
         let transform = { x: 0, y: 0, scale: 1 };
-        let isDragging = false;
-        let lastMousePos = { x: 0, y: 0 };
+    let isDragging = false;
+    let lastMousePos = { x: 0, y: 0 };
+        let isPanZoomEnabled = false; // keep zoom disabled
+    let isPanEnabled = false; // Make map static (no pan)
+        let showTooltipsEnabled = true; // tooltips enabled on first page (hover)
+        let customFontSize = null; // optionally set for result-page smaller labels
+        
+        // Hover tooltip state
+        let hoveredNode = null;
+        let tooltipDiv = null;
+        let lastClickTime = 0; // Track click time to differentiate from drag
 
         // --- Error Handling ---
         function showError(message) {
@@ -361,6 +374,11 @@
                 // (we intentionally keep the map visible to show the network)
                 preprocessCanvasData();
                 drawNetwork(); // Draw the initial base map
+                // Fit content so nodes are spaced and hover detection becomes accurate
+                fitContentToView();
+                // Keep the map static on the first page
+                isPanEnabled = false;
+                isPanZoomEnabled = false;
 
             } catch (error) {
                 console.error('Failed to load network data:', error);
@@ -464,80 +482,140 @@
             applyTransform(ctx); // Apply pan/zoom transform
             
             ctx.clearRect(-transform.x, -transform.y, canvasWidth / transform.scale, canvasHeight / transform.scale);
-            
-            const pathSet = new Set(highlightPathIds);
+
+            // If a path is provided, draw the full map (same as first page) and overlay the highlighted route.
+            const pathSet = new Set(highlightPathIds || []);
             const pathEdges = new Set();
-            for (let i = 0; i < highlightPathIds.length - 1; i++) {
+            for (let i = 0; i < (highlightPathIds || []).length - 1; i++) {
                 pathEdges.add(`${highlightPathIds[i]}-${highlightPathIds[i+1]}`);
-                pathEdges.add(`${highlightPathIds[i+1]}-${highlightPathIds[i]}`);
             }
 
-            // 1. Draw Arcs (Lines)
+            // 1. Draw all arcs (faint), but path edges will be drawn on top
             networkData.arcs.forEach(arc => {
                 const start = scaledNodes[arc.from];
                 const end = scaledNodes[arc.to];
                 if (!start || !end) return;
-                
+
                 const isPathEdge = pathEdges.has(`${arc.from}-${arc.to}`) || pathEdges.has(`${arc.to}-${arc.from}`);
-                
+
                 ctx.beginPath();
                 ctx.moveTo(start.x, start.y);
                 ctx.lineTo(end.x, end.y);
-                ctx.strokeStyle = isPathEdge ? '#EF4444' : '#D1D5DB'; // Red-500 if path, Gray-300 otherwise
+                ctx.strokeStyle = isPathEdge ? '#EF4444' : 'rgba(209,213,219,0.9)';
                 ctx.lineWidth = isPathEdge ? 3 : 1;
                 ctx.stroke();
             });
 
-            // 2. Draw Nodes (Circles) and Labels
+            // 2. Draw all nodes (circles only). Collect nodes that need labels and draw labels in screen-space
+            const labelNodes = [];
             Object.values(scaledNodes).forEach(node => {
-                // Ensure node has valid coordinates
                 if (typeof node.x === 'undefined' || typeof node.y === 'undefined') return;
-                
+
                 const isShelter = node.id.startsWith('s');
                 const isPathNode = pathSet.has(node.id);
 
                 ctx.beginPath();
-                // Scale node size with zoom
-                const nodeSize = isPathNode ? 7 / transform.scale : 4 / transform.scale;
-                ctx.arc(node.x, node.y, nodeSize, 0, 2 * Math.PI);
-                
+                // Determine node size: path nodes are bold (larger), shelters are green, others are gray
+                let nodeSize;
                 if (isPathNode) {
-                    ctx.fillStyle = '#3B82F6'; // Blue-500
+                    nodeSize = 8 / transform.scale; // Bold/larger for path nodes
+                } else if (isShelter) {
+                    nodeSize = 4 / transform.scale; // Smaller for shelters
+                } else {
+                    nodeSize = 3 / transform.scale; // Small for regular nodes
+                }
+                ctx.arc(node.x, node.y, nodeSize, 0, 2 * Math.PI);
+
+                if (isPathNode) {
+                    ctx.fillStyle = '#3B82F6'; // Blue for path nodes
                     ctx.strokeStyle = '#FFFFFF'; // White border
                     ctx.lineWidth = 2 / transform.scale;
                 } else if (isShelter) {
-                    ctx.fillStyle = '#10B981'; // Green-500
-                    ctx.strokeStyle = '#10B981';
-                    ctx.lineWidth = 1 / transform.scale;
+                    ctx.fillStyle = '#10B981'; // Green for shelters
+                    ctx.strokeStyle = '#059669'; // Darker green stroke
+                    ctx.lineWidth = 1.5 / transform.scale;
                 } else {
-                    ctx.fillStyle = '#9CA3AF'; // Gray-400
-                    ctx.strokeStyle = '#9CA3AF';
+                    ctx.fillStyle = '#9CA3AF'; // Gray for regular nodes
+                    ctx.strokeStyle = '#6B7280'; // Darker gray stroke
                     ctx.lineWidth = 1 / transform.scale;
                 }
-                
+
                 ctx.fill();
                 ctx.stroke();
 
-                // 3. Draw labels for important nodes
+                // Collect label nodes to render later in screen-space (avoids transform/font scaling issues)
                 if (isPathNode || (isShelter && !highlightPathIds.length)) {
-                     ctx.fillStyle = '#1F2937'; // Gray-800
-                     // Scale font size with zoom level
-                     const fontSize = Math.max(8, Math.min(14, 11 / transform.scale));
-                     ctx.font = `bold ${fontSize}px Inter, sans-serif`;
-                     ctx.fillText(node.name, node.x + 10 / transform.scale, node.y + 4 / transform.scale);
-                } else if (isShelter && highlightPathIds.length) {
-                    // On zoom, only label path nodes, but show shelter dots
-                    ctx.beginPath();
-                    ctx.arc(node.x, node.y, 4, 0, 2 * Math.PI);
-                    ctx.fillStyle = '#10B981';
-                    ctx.strokeStyle = '#10B981';
-                    ctx.lineWidth = 1;
-                    ctx.fill();
-                    ctx.stroke();
+                    labelNodes.push({ id: node.id, name: node.name, x: node.x, y: node.y, isPathNode });
                 }
             });
             
-            ctx.restore(); // Restore the context state
+            ctx.restore(); // Restore the context state (back to identity)
+
+            // Draw labels in screen (CSS pixel) coordinates so text size and offsets are consistent
+            if (labelNodes.length > 0) {
+                ctx.save();
+                // Set transform so 1 unit == 1 CSS pixel (accounting for devicePixelRatio)
+                ctx.setTransform(scaleFactor, 0, 0, scaleFactor, 0, 0);
+
+                // Determine base font in CSS pixels
+                const baseFontPx = (typeof customFontSize === 'number') ? Math.max(9, customFontSize) : 11;
+                ctx.fillStyle = '#1F2937';
+                ctx.font = `bold ${baseFontPx}px Inter, sans-serif`;
+                ctx.textBaseline = 'middle';
+
+                // Prioritize path nodes so their labels are drawn first
+                labelNodes.sort((a, b) => (b.isPathNode === true) - (a.isPathNode === true));
+
+                const drawnRects = [];
+                const padding = 4; // px padding around text
+                labelNodes.forEach(n => {
+                    // Convert node world coords to screen CSS pixels
+                    const screenX = n.x * transform.scale + transform.x;
+                    const screenY = n.y * transform.scale + transform.y;
+                    const text = n.name;
+                    const metrics = ctx.measureText(text);
+                    // estimate text height from font size
+                    const fontMatch = ctx.font.match(/(\d+)px/);
+                    const fontPx = fontMatch ? parseInt(fontMatch[1], 10) : baseFontPx;
+                    const textWidth = metrics.width;
+                    const textHeight = fontPx;
+
+                    const rect = {
+                        left: screenX + 10 - padding,
+                        top: screenY - textHeight / 2 - padding,
+                        right: screenX + 10 + textWidth + padding,
+                        bottom: screenY + textHeight / 2 + padding
+                    };
+
+                    // Check for overlap with already drawn labels
+                    let overlaps = false;
+                    for (const r of drawnRects) {
+                        if (!(rect.right < r.left || rect.left > r.right || rect.bottom < r.top || rect.top > r.bottom)) {
+                            overlaps = true;
+                            break;
+                        }
+                    }
+
+                    // Always draw if it's a path node; otherwise skip if overlaps
+                    if (!overlaps || n.isPathNode) {
+                        ctx.fillText(text, screenX + 10, screenY + 0);
+                        drawnRects.push(rect);
+                    }
+                });
+
+                ctx.restore();
+            }
+        }
+        
+        // Wrapper to draw with a temporary custom font size for result page
+        function drawNetworkWithFontSize(pathIds = [], fontSize = null) {
+            const prevSize = customFontSize;
+            if (typeof fontSize === 'number') customFontSize = fontSize;
+            try {
+                drawNetwork(pathIds);
+            } finally {
+                customFontSize = prevSize;
+            }
         }
         
         function createHighlightedPath(pathNames, pathIds) {
@@ -582,36 +660,186 @@
             };
         }
 
+        // Helper to find node under mouse cursor - check by pixel distance
+        function getNodeAtPoint(canvasX, canvasY) {
+            const rect = canvas.getBoundingClientRect();
+            const mousePixelX = canvasX - rect.left;
+            const mousePixelY = canvasY - rect.top;
+            
+            const hitRadiusPixels = 14; // CSS pixels (slightly larger for reliable hover)
+
+            // Check each node - calculate its screen pixel position in CSS pixels
+            for (const nodeId in scaledNodes) {
+                const node = scaledNodes[nodeId];
+
+                // node.x/node.y are in canvas CSS coordinates (width/height divided by scaleFactor)
+                // Apply world transform (transform.scale and transform.x/y) to get CSS pixel position
+                const screenPixelX = node.x * transform.scale + transform.x;
+                const screenPixelY = node.y * transform.scale + transform.y;
+
+                // Calculate distance in CSS pixels
+                const distX = mousePixelX - screenPixelX;
+                const distY = mousePixelY - screenPixelY;
+                const dist = Math.sqrt(distX * distX + distY * distY);
+
+                if (dist < hitRadiusPixels) {
+                    return node;
+                }
+            }
+            return null;
+        }
+
+        // Create tooltip element if not exists
+        function createTooltip() {
+            if (!tooltipDiv) {
+                tooltipDiv = document.createElement('div');
+                tooltipDiv.style.position = 'fixed';
+                tooltipDiv.style.backgroundColor = '#1F2937';
+                tooltipDiv.style.color = '#FFFFFF';
+                tooltipDiv.style.padding = '6px 12px';
+                tooltipDiv.style.borderRadius = '6px';
+                tooltipDiv.style.fontSize = '12px';
+                tooltipDiv.style.pointerEvents = 'none';
+                tooltipDiv.style.zIndex = '10000';
+                tooltipDiv.style.display = 'none';
+                tooltipDiv.style.whiteSpace = 'nowrap';
+                tooltipDiv.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+                document.body.appendChild(tooltipDiv);
+            }
+            return tooltipDiv;
+        }
+
+        function showTooltip(node, x, y) {
+            const tooltip = createTooltip();
+            tooltip.textContent = node.name;
+            tooltip.style.display = 'block';
+            
+            // Position tooltip with offset
+            let tooltipX = x + 10;
+            let tooltipY = y + 10;
+            
+            // Adjust if tooltip goes off the right edge
+            if (tooltipX + tooltip.offsetWidth > window.innerWidth) {
+                tooltipX = x - tooltip.offsetWidth - 10;
+            }
+            
+            // Adjust if tooltip goes off the bottom edge
+            if (tooltipY + tooltip.offsetHeight > window.innerHeight) {
+                tooltipY = y - tooltip.offsetHeight - 10;
+            }
+            
+            tooltip.style.left = tooltipX + 'px';
+            tooltip.style.top = tooltipY + 'px';
+        }
+
+        function hideTooltip() {
+            if (tooltipDiv) {
+                tooltipDiv.style.display = 'none';
+            }
+        }
+
+        function updateHelperText() {
+            const helperText = document.getElementById('map-helper-text');
+            if (showTooltipsEnabled) {
+                helperText.textContent = '✓ Hover over any location to see its name';
+                helperText.classList.remove('text-blue-600');
+                helperText.classList.add('text-green-600');
+            } else {
+                helperText.textContent = 'Hover over the map to see place names';
+                helperText.classList.remove('text-green-600');
+                helperText.classList.add('text-blue-600');
+            }
+        }
+
+        // Fit the content (all nodes) into the canvas view by adjusting transform.scale and transform.x/y
+        function fitContentToView(nodeIdsToFit = null, customPadFactor = 0.85) {
+            if (!scaledNodes || Object.keys(scaledNodes).length === 0) return;
+
+            const canvasWidth = canvas.width / scaleFactor;
+            const canvasHeight = canvas.height / scaleFactor;
+
+            // Determine which nodes to fit
+            let nodesToFit = Object.values(scaledNodes);
+            if (nodeIdsToFit && nodeIdsToFit.length > 0) {
+                const nodeIdSet = new Set(nodeIdsToFit);
+                nodesToFit = Object.values(scaledNodes).filter(n => nodeIdSet.has(n.id));
+            }
+
+            if (nodesToFit.length === 0) return;
+
+            const xs = nodesToFit.map(n => n.x);
+            const ys = nodesToFit.map(n => n.y);
+            const contentLeft = Math.min(...xs);
+            const contentRight = Math.max(...xs);
+            const contentTop = Math.min(...ys);
+            const contentBottom = Math.max(...ys);
+
+            const contentWidth = Math.max(1, contentRight - contentLeft);
+            const contentHeight = Math.max(1, contentBottom - contentTop);
+
+            // Use custom pad factor if provided
+            let desiredScale = Math.min((canvasWidth / contentWidth) * customPadFactor, (canvasHeight / contentHeight) * customPadFactor);
+            // Clamp
+            desiredScale = Math.max(0.5, Math.min(5, desiredScale));
+
+            transform.scale = desiredScale;
+
+            const contentCenterX = (contentLeft + contentRight) / 2;
+            const contentCenterY = (contentTop + contentBottom) / 2;
+
+            // Center content in world (canvas) coordinates
+            transform.x = (canvasWidth / 2) - contentCenterX * transform.scale;
+            transform.y = (canvasHeight / 2) - contentCenterY * transform.scale;
+        }
+
         // Add mouse event listeners for pan and zoom
         canvas.addEventListener('mousedown', (e) => {
-            isDragging = true;
-            lastMousePos = {
-                x: e.clientX - transform.x,
-                y: e.clientY - transform.y
-            };
-            canvas.style.cursor = 'grabbing';
+            // No click toggling: map is static and hover shows tooltips on the first page.
+            // If panning were enabled, start drag (kept off by default)
+            if (isPanEnabled) {
+                isDragging = true;
+                lastMousePos = {
+                    x: e.clientX - transform.x,
+                    y: e.clientY - transform.y
+                };
+                canvas.style.cursor = 'grabbing';
+            }
         });
 
         canvas.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            
-            transform.x = e.clientX - lastMousePos.x;
-            transform.y = e.clientY - lastMousePos.y;
-            
-            drawNetwork(currentHighlightPath);
+            // Panning only when enabled
+            if (isDragging && isPanEnabled) {
+                transform.x = e.clientX - lastMousePos.x;
+                transform.y = e.clientY - lastMousePos.y;
+                drawNetwork(currentHighlightPath);
+            } else if (!isPanZoomEnabled && showTooltipsEnabled && resultSection.classList.contains('hidden')) {
+                // Show hover tooltip only on the first (input) page when tooltips are enabled
+                const node = getNodeAtPoint(e.clientX, e.clientY);
+                if (node) {
+                    showTooltip(node, e.clientX, e.clientY);
+                    hoveredNode = node.id;
+                } else {
+                    hideTooltip();
+                    hoveredNode = null;
+                }
+            }
         });
 
         canvas.addEventListener('mouseup', () => {
             isDragging = false;
-            canvas.style.cursor = 'grab';
+            if (isPanEnabled) canvas.style.cursor = 'default';
         });
 
         canvas.addEventListener('mouseleave', () => {
             isDragging = false;
-            canvas.style.cursor = 'grab';
+            if (isPanEnabled) canvas.style.cursor = 'default';
+            hideTooltip();
+            hoveredNode = null;
         });
 
         canvas.addEventListener('wheel', (e) => {
+            if (!isPanZoomEnabled) return; // Disable zoom on first page
+            
             e.preventDefault();
             
             const mousePos = getMousePos(canvas, e);
@@ -631,7 +859,7 @@
         });
 
         // Set initial cursor style
-        canvas.style.cursor = 'grab';
+    canvas.style.cursor = 'default';
 
         // --- Event Listeners ---
         findButton.addEventListener('click', async () => {
@@ -696,15 +924,27 @@
 
                 // Success! Get the first allocation
                 const result = data.allocations[0];
-                currentAllocation = result; 
+                currentAllocation = result;
                 
-                currentHighlightPath = result.path_ids; 
+                // Store the path for proper zooming
+                currentHighlightPath = result.path_ids;
 
-                // Zoom in on the path
-                calculateBounds(currentHighlightPath); 
+                // Show the results - zoom in on highlighted route area
+                inputSection.classList.add('hidden');
+                resultSection.classList.remove('hidden');
+                
+                // Calculate full network bounds first
+                calculateBounds();
                 preprocessCanvasData();
-
-                // --- Populate Results ---
+                
+                // Now fit the view to only the path nodes (will zoom in on route)
+                // Use custom pad factor 0.45 for more zoom-out on result page
+                fitContentToView(result.path_ids, 0.45);
+                
+                // Draw with larger, readable font size for result page
+                drawNetworkWithFontSize(result.path_ids, 11);
+                
+                // Populate results UI
                 resultHeader.textContent = `Route Allocated for ${userName}!`;
                 document.getElementById('shelter-name').textContent = result.assignedShelterName;
                 
@@ -732,11 +972,15 @@
                     setFindButtonLoading(false); // Manually re-enable button
                 }
 
-                drawNetwork(result.path_ids);
-
-                // Show the results
-                inputSection.classList.add('hidden');
-                resultSection.classList.remove('hidden');
+                // Disable tooltips and hide the map helper on results view
+                showTooltipsEnabled = false;
+                updateHelperText();
+                document.getElementById('map-helper-text').style.display = 'none';
+                
+                // Keep pan/zoom disabled for static output map
+                isPanEnabled = false;
+                isPanZoomEnabled = false;
+                canvas.style.cursor = 'default';
 
             } catch (error) {
                 console.error('Error finding route:', error);
@@ -794,6 +1038,13 @@
             resultSection.classList.add('hidden');
             inputSection.classList.remove('hidden');
             hideError();
+            hideTooltip(); // Hide any lingering tooltips
+            
+            // Disable pan/zoom on first page (keep map static)
+            isPanZoomEnabled = false;
+            isPanEnabled = false;
+            showTooltipsEnabled = true; // Reset tooltip toggle to enable hover on front page
+            transform = { x: 0, y: 0, scale: 1 }; // Reset transform
             
             // Reset new inputs
             peopleCountInput.value = '1';
@@ -808,12 +1059,18 @@
             currentHighlightPath = [];
             currentAllocation = null;
             
+            // Update helper text back to original and show the helper
+            updateHelperText();
+            const helper = document.getElementById('map-helper-text');
+            helper.style.display = '';
+            
             // Reset bounds to full map
             calculateBounds(); 
             preprocessCanvasData(); 
             
             // Reset transform to default
             transform = { x: 0, y: 0, scale: 1 };
+            canvas.style.cursor = 'default';
             
             // Redraw the base map
             drawNetwork();
@@ -824,6 +1081,8 @@
             // Load network data first (from local JSON). Then populate locations (fallbacks to network data).
             await loadNetworkData();
             await loadLocations();
+            // Ensure helper text matches current tooltip state
+            updateHelperText();
         });
         
         // Redraw map on window resize
@@ -834,6 +1093,8 @@
                 if (networkData) { // Only run if data is loaded
                     calculateBounds(currentHighlightPath); 
                     preprocessCanvasData(); 
+                    // refit content for static map so nodes remain spaced
+                    fitContentToView();
                     drawNetwork(currentHighlightPath);
                 }
             }, 100); // Debounce resize event
@@ -843,5 +1104,4 @@
 </body>
 
 </html>
-
 
